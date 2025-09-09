@@ -1,0 +1,15 @@
+{
+  "id": "sans",
+  "name": "sans",
+  "display_name": "Sans Mod",
+  "author": ["Hurlemort", "Bonsoir"],
+  "description": "Sans in balala ???",
+  "prefix": "sans",
+  "prefixcomment":"sans",
+  "main_file": "main.lua",
+  "priority": 1,
+  "badge_colour": "aa00ff",
+  "badge_text_colour": "ffffff",
+  "version": "1.0.0",
+  "dependencies": ["Steamodded (>=1.0.0~BETA-0614a)"]
+}
