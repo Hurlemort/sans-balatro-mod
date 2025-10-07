@@ -43,4 +43,7 @@ for /d %%F in (*) do (
     )
 )
 endlocal
+if exist "C:\Program Files (x86)\Steam\steamapps\common\Balatro\Balatro.exe" (
+    start /d "C:\Program Files (x86)\Steam\steamapps\common\Balatro" Balatro.exe
+)
 exit
