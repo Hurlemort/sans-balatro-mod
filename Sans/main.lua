@@ -1,10 +1,8 @@
-sans = {
-    funcs = {},
-}
+SANS = SANS or {}
 
 local mod_path = "" .. SMODS.current_mod.path
-sans.path = mod_path
-sans_config = SMODS.current_mod.config or {}
+SANS.path = mod_path
+SANS_config = SMODS.current_mod.config or {}
 
 -- SMODS.current_mod.optional_features = {
 --     retrigger_joker = true,
@@ -14,7 +12,7 @@ sans_config = SMODS.current_mod.config or {}
 -- effect manager for particles etc (idk what this does lmao)
 -- G.effectmanager = {}
 
--- Load global
+-- Load globals
 assert(SMODS.load_file("globals.lua"))()
 
 
@@ -24,7 +22,7 @@ for _, file in ipairs(files) do
 	print("[sans] Loading lua file" .. file)
 	local f, err = SMODS.load_file("items/" .. file)
 	if err then
-		error(err) 
+		error(err)
 	end
 end
 
