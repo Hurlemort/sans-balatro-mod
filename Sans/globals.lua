@@ -26,12 +26,14 @@ TL.attacksCount = TL.attacksCount or {}
 -- Menu Globals
 TL.MENU = TL.MENU or {state = false}
 TL.MENU.icons = TL.MENU.icons or { UIFight = false, UIAct = false, UIItem = false, UIMercy = false, previous_highlight = "UIFight"}
+TL.fonts = TL.fonts or {}
+TL.player.name = "TAO"
 
 -- Function to load an image to the framebuffer
-function TL.LoadImage(name, x, y, rotation, xScale, yScale, isAttack, color)
+function TL.LoadImage(name, x, y, rotation, scaleX, scaleY, isAttack, color)
     rotation = rotation or 0
-    xScale = xScale or 1
-    yScale = yScale or 1
+    scaleX = scaleX or 1
+    scaleY = scaleY or 1
 
     local filename = name .. ".png"
 
@@ -71,12 +73,11 @@ function TL.LoadImage(name, x, y, rotation, xScale, yScale, isAttack, color)
         x = x,
         y = y,
         rotation = rotation,
-        xScale = xScale,
-        yScale = yScale,
+        scaleX = scaleX,
+        scaleY = scaleY,
         visible = true,
         isAttack = isAttack,
     }
-
     return key
 end
 
@@ -92,71 +93,133 @@ end
 -- function made at the end of the attacks : remove all the images that are for attacks in TL.images
 function TL.DestroyAllAttacks()
     for key, img in pairs(TL.images) do
-        if not TL.images[key].isAttack then
-            table.remove(TL.images, key)
+        if img and img.isAttack == true then
+            TL.images[key] = nil
         end
     end
     TL.attacksCount = {}
 end
 
-function TL.CombatZoneResize(LeftPosition, TopPosition, RightPosition, BottomPosition)
-    -- Store old zone
-    TL.old_zone.left = TL.zone.left
-    TL.old_zone.top = TL.zone.top
-    TL.old_zone.right = TL.zone.right
-    TL.old_zone.bottom = TL.zone.bottom
+function TL.LoadFont(fontname, firstChar, lastChar)
+    -- Rebuild of the LoadImage function : easier since we have to directly manipulate the image data
+    local filename = fontname .. ".png"
 
-    -- Set new target zone
-    TL.target_zone.left = LeftPosition
-    TL.target_zone.top = TopPosition
-    TL.target_zone.right = RightPosition
-    TL.target_zone.bottom = BottomPosition
-
-    -- Reset anim timer
-    TL.anim_time = 0
-end
-
--- linear interpolation
-local function lerp(a, b, t)
-    return a + (b - a) * t
-end
-
-function TL.ShowHealth()
-    -- bool check so it only does all the math once
-    if not TL.healthbar then
-        local screenW, screenH = 640, 480  -- framebuffer size
-
-        -- Scaled dimensions (*0.44 factor)
-        local containerW, containerH = 176, 22
-        local imgW, imgH = 23, 10
-        local healthW, healthH = 100, 22
-
-        -- Centered vertically
-        local containerX = (screenW - containerW) / 2
-        local containerY = (screenH - containerH) / 2
-
-        -- Spacing
-        local spacing = (containerW - (2 * imgW + healthW)) / 2
-
-        -- Positions
-        local hpX = containerX
-        local healthX = hpX + imgW + spacing
-        local krX = containerX + containerW - imgW
-        local imgY = containerY + (containerH - imgH) / 2
-        local healthY = containerY
-
-
-        -- Load once
-        TL.LoadImage("HP", hpX, imgY, 0, 1, 1, true)
-        TL.LoadImage("KR", krX, imgY, 0, 1, 1, true)
-        TL.healthbar = {
-            rectX = healthX,
-            rectY = healthY,
-            rectW = healthW,
-            rectH = healthH
-        }
+    local base = SANS.path or ""
+    local last = base:sub(-1)
+    if last ~= "/" and last ~= "\\" then
+        base = base .. "/"
     end
 
+    local full_path = base .. "textures/" .. filename
+
+    -- Raw img data
+    local file_data = NFS.newFileData(full_path)
+    local imgData = love.image.newImageData(file_data)
+    local width, height = imgData:getWidth(), imgData:getHeight()
+
+    -- Green colums = character separator
+    local charSlices = {}
+    local startX = 0
+    for x = 0, width - 1 do
+        local r, g, b, a = imgData:getPixel(x, 0)
+        if math.abs(r - 0) < 0.01 and math.abs(g - 1) < 0.01 and math.abs(b - 0) < 0.01 then
+            local charW = x - startX
+            if charW > 0 then
+                table.insert(charSlices, {x = startX, w = charW})
+            end
+            startX = x + 1
+        end
+    end
+    if startX < width then
+        table.insert(charSlices, {x = startX, w = width - startX})
+    end
+
+    -- Create sub images per character
+    TL.fonts[fontname] = {}
+
+    local numChars = lastChar - firstChar + 1
+
+    for i = 1, math.min(numChars, #charSlices) do
+        local slice = charSlices[i]
+        local charCode = firstChar + i - 1
+
+        local subData = love.image.newImageData(slice.w, height)
+        subData:paste(imgData, 0, 0, slice.x, 0, slice.w, height)
+        local subImg = love.graphics.newImage(subData)
+        subImg:setFilter("nearest", "nearest")
+
+        TL.fonts[fontname][charCode] = {
+            img = subImg,
+            width = slice.w,
+            height = height
+        }
+    end
+end
+
+
+-- Draws any text at whatever position
+function TL.DrawText(fontname, text, posX, posY, kerning, scaleX, scaleY)
+    kerning = kerning or 0
+    scaleX = scaleX or 1
+    scaleY = scaleY or 1
+    local x = posX
+    local fontTable = TL.fonts[fontname]
+
+    -- Fallback glyph (underscore)
+    local underscore = fontTable[string.byte("_")]
+
+    for i = 1, #text do
+        local charCode = string.byte(text, i)
+        local glyph = fontTable[charCode]
+
+        if not glyph or not glyph.img then
+            glyph = underscore
+        end
+
+        if glyph and glyph.img then
+            love.graphics.draw(glyph.img, x, posY, 0, scaleX, scaleY)
+            x = x + (glyph.width * scaleX) + kerning
+        end
+    end
+end
+
+
+
+function TL.LoadHealth()
+    local screenW, screenH = 640, 480  -- framebuffer size
+
+    -- Scaled dimensions (*0.44 factor)
+    local containerW, containerH = 176, 21
+    local imgW, imgH = 23, 10
+    local healthW, healthH = 111, containerH
+
+    -- Centered vertically
+    local containerX = (screenW - containerW) / 2
+    local containerY = 403.5 -- calculated using the folowing formula : posY = top + ((bottom - top) - (elementH * scaleY)) / 2; where top is 391 (combat zone bottom) and bottom is 437 (screen bot + action icons height + padding)
+
+    -- Spacing
+    local spacing = (containerW - (2 * imgW + healthW)) / 2
+
+    -- Positions
+    local hpX = containerX
+    local healthX = hpX + imgW + spacing
+    local krX = containerX + containerW - imgW
+    local imgY = containerY + (containerH - imgH) / 2
+    local healthY = containerY
+
+
+    -- Load once
+    TL.LoadImage("HP", hpX, imgY, 0, 1, 1, false)
+    TL.LoadImage("KR", krX, imgY, 0, 1, 1, false)
+    TL.healthbar = {
+        rectX = healthX,
+        rectY = healthY,
+        rectW = healthW,
+        rectH = healthH
+    }
+end
+
+function TL.UpdateHealth()
     local hb = TL.healthbar
     local maxhpW = hb.rectW
     local currenthpW = maxhpW * TL.player.hp / TL.player.max_hp
@@ -185,14 +248,13 @@ function TL.LoadUI()
 
     -- Layout settings
     local iconW, iconH = 110, 42
-    local paddingSides, paddingBot = 40, 40
+    local paddingSides, paddingBot = 28, 1
     local containerW = 640 - 2 * paddingSides
     local containerH = iconH
     local containerX = paddingSides
     local containerY = 480 - paddingBot - containerH
 
-    local totalIconWidth = 4 * iconW
-    local spaceBetween = (containerW - totalIconWidth) / 3
+    local spaceBetween = (containerW - (4*iconW)) / 3
 
     -- Load all normal + highlighted versions
     for i, name in ipairs({ "UIFight", "UIAct", "UIItem", "UIMercy" }) do
@@ -200,58 +262,27 @@ function TL.LoadUI()
         local y = containerY
 
         -- Normal version
-        local normalKey = name
-        TL.LoadImage(normalKey, x, y, 0, 1, 1, false)
+        local normal = name
+        TL.LoadImage(normal, x, y, 0, 1, 1, false)
 
-        -- Highlighted version
-        local highlightedKey = name .. "_Highlight"
-        TL.LoadImage(highlightedKey, x, y, 0, 1, 1, false)
+        -- Highlight version
+        local highlight = name .. "_Highlight"
+        TL.LoadImage(highlight, x, y, 0, 1, 1, false)
 
         -- Set visibility right
-        if TL.images[normalKey] then
-            TL.images[normalKey].visible = (name ~= last)
+        if TL.images[normal] then
+            TL.images[normal].visible = (name ~= last)
         end
-        if TL.images[highlightedKey] then
-            TL.images[highlightedKey].visible = (name == last)
-        end
-    end
-end
-
-function TL.EndAttack()
-    TL.MENU.state = true
-    TL.CombatZoneResize(33, 251, 608, 391)
-
-    -- Hide everything except not all of them lol
-    TL.HideAllImages({ HP = true, KR = true, PlayerHeart = true })
-
-    -- Destroy all attacks
-    TL.DestroyAllAttacks()
-
-    -- Reset all icon states (will prolly change when i get to the attack loader)
-    for name, _ in pairs(TL.MENU.icons) do
-        if name ~= "previous_highlight" then
-            TL.MENU.icons[name] = false
-        end
-    end
-
-    -- Get last highlighted
-    local last = TL.MENU.icons.previous_highlight or "UIFight"
-
-    -- Set the right one in highlight mode, the others no
-    for _, name in ipairs({ "UIFight", "UIAct", "UIItem", "UIMercy" }) do
-        local normal = TL.images[name]
-        local highlighted = TL.images[name .. "_Highlight"]
-
-        if normal then
-            normal.visible = (name ~= last)
-        end
-        if highlighted then
-            highlighted.visible = (name == last)
+        if TL.images[highlight] then
+            TL.images[highlight].visible = (name == last)
         end
     end
 end
 
-
+-- linear interpolation
+local function lerp(a, b, t)
+    return a + (b - a) * t
+end
 
 -- Update hook
 local update_hook = Game.update
@@ -271,8 +302,8 @@ function Game:update(dt)
         end
 
         -- heart movement + clamping for every rotation
-        if TL.heartKey and TL.images[TL.heartKey] and not TL.MENU.state then
-            local heart = TL.images[TL.heartKey]
+        if TL.images.PlayerHeart and not TL.MENU.state then
+            local heart = TL.images.PlayerHeart
             local spd = TL.heartSpeed or 200
 
             -- movement input
@@ -284,7 +315,7 @@ function Game:update(dt)
             -- clamp area (clampin' my shi')(tbh i don't understand fully the code bellow but it works)
             local zone = TL.zone
             local imgw, imgh = heart.img:getWidth(), heart.img:getHeight()
-            local sx, sy = heart.xScale or 1, heart.yScale or 1
+            local sx, sy = heart.scaleX or 1, heart.scaleY or 1
             local rot = heart.rotation or 0
 
             -- origin coords
@@ -354,6 +385,11 @@ function love.keypressed(key, scancode, isrepeat)
             print("Sans on")
             CHANNEL:push({ type = "stop" })  -- Stops all audio
             TL.LoadUI()
+            TL.LoadHealth()
+            TL.LoadFont("BattleFont", 32, 95)
+            TL.LoadFont("DamageFont", 32, 126)
+            TL.LoadFont("DefaultFont", 32, 126)
+            TL.LoadFont("SansFont", 32, 126)
         else
             print("Sans off")
             CHANNEL:push({
@@ -375,7 +411,7 @@ function love.keypressed(key, scancode, isrepeat)
         local minWidth, minHeight = 80, 60
         local maxWidth, maxHeight = 640, 480
 
-        -- Random width/height within limits
+        -- Random combat zone size within framenbuffer
         local width = love.math.random(minWidth, maxWidth)
         local height = love.math.random(minHeight, maxHeight)
 
@@ -389,8 +425,8 @@ function love.keypressed(key, scancode, isrepeat)
         TL.CombatZoneResize(left, top, right, bottom)
     end
 
-    if scancode == "h" and not isrepeat and not TL.heartKey then
-        TL.heartKey = TL.LoadImage("PlayerHeart", 300, 200, math.pi / 2, 1, 1, true, { r = 1, g = 0, b = 0 })
+    if scancode == "h" and not isrepeat and not TL.images.PlayerHeart then
+        TL.LoadImage("PlayerHeart", 300, 200, math.pi / 2, 1, 1, false, { r = 1, g = 0, b = 0 })
         TL.heartSpeed = 200
     end
     if scancode == "o" and not isrepeat then
@@ -428,15 +464,18 @@ function love.draw()
         -- combat zone into framebuffer
         love.graphics.setCanvas(framebuffer)
 
-        love.graphics.clear(0, 1, 0.5, 1) -- green bg (test only)
+        love.graphics.clear(0, 0, 0, 1) -- green bg (test only)
         love.graphics.setColor(1, 1, 1, 1)
 
-        TL.ShowHealth() -- important
+        TL.UpdateHealth() -- important
+
+        TL.DrawText("BattleFont", TL.player.name .. "   LV 19", 28, 406.5, 1, 3, 3) -- for magic number 406.5, refer to the LoadHealth() function
+        TL.DrawText("BattleFont", tostring(TL.player.hp) .. " / " .. tostring(TL.player.max_hp), 433, 406.5, 1, 3, 3) -- 433 is 232 + 176 + 25 (containerX + containerW + spacing)
 
         -- load all visible images
         for _, img in pairs(TL.images) do
             if img.visible then
-                love.graphics.draw(img.img, img.x, img.y, img.rotation, img.xScale, img.yScale)
+                love.graphics.draw(img.img, img.x, img.y, img.rotation, img.scaleX, img.scaleY)
             end
         end
 

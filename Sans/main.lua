@@ -14,6 +14,7 @@ SANS_config = SMODS.current_mod.config or {}
 
 -- Load globals
 assert(SMODS.load_file("globals.lua"))()
+assert(SMODS.load_file("attackloader.lua"))()
 
 
 --Load item files
